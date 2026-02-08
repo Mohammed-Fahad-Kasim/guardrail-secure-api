@@ -1,0 +1,23 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Run GuardRail API",
+      "type": "shell",
+      "command": "${workspaceFolder}/venv/Scripts/python.exe -m uvicorn main:app --reload",
+      "options": {
+        "cwd": "${workspaceFolder}/backend"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Run GuardRail Dashboard",
+      "type": "shell",
+      "command": "${workspaceFolder}/venv/Scripts/python.exe -m streamlit run dashboard.py",
+      "options": {
+        "cwd": "${workspaceFolder}/dashboard"
+      },
+      "problemMatcher": []
+    }
+  ]
+}

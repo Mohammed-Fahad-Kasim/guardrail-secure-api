@@ -19,12 +19,14 @@ st.markdown("""
 st.caption("Live traffic • Behavioral analysis • Automated blocking")
 st.divider()
 
+# Sidebar
 st.sidebar.title("⚙️ Dashboard Info")
 st.sidebar.markdown("**Environment:** Hackathon Simulation")
 st.sidebar.markdown("**Detection Type:** Behavioral Fingerprinting")
 st.sidebar.markdown("**Protection:** Active")
 st.sidebar.markdown("**Mode:** API")
 
+# Metrics
 col1, col2, col3 = st.columns(3)
 total_ph = col1.empty()
 blocked_ph = col2.empty()
@@ -33,23 +35,16 @@ threat_ph = col3.empty()
 st.subheader("📈 Traffic Intensity (Requests / Second)")
 chart_ph = st.empty()
 
-st.subheader("🚨 Recently Blocked Clients")
+st.subheader("🚨 Recently Blocked Requests")
 table_ph = st.empty()
 
-def threat_style(val):
-    try:
-        val = int(val)
-    except:
-        return ""
-    if val >= 80:
-        return "background-color:#d32f2f; color:white; font-weight:bold"
-    elif val >= 60:
-        return "background-color:#ffa000; color:black; font-weight:bold"
-    return "background-color:#c8e6c9; color:black"
 
+# ---------- Styling helpers ----------
 def decision_style(val):
     return "color:#d32f2f; font-weight:bold" if str(val).upper() == "BLOCKED" else "color:#2e7d32"
 
+
+# ---------- Main loop ----------
 while True:
     try:
         df = pd.DataFrame(requests.get(API_URL, timeout=3).json())
@@ -63,39 +58,52 @@ while True:
         time.sleep(REFRESH_SECONDS)
         continue
 
-    df["status"] = df["status"].astype(str).str.upper()
-    df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
-    df = df.sort_values("timestamp", ascending=False)
+    # ---- FIXED COLUMN MAPPING ----
+    df["risk_level"] = df["risk_level"].astype(str).str.upper()
+    df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce")
 
+    df = df.sort_values("created_at", ascending=False)
+
+    # Lifetime stats
     total_requests = requests.get(COUNT_URL).json().get("total", 0)
     blocked_requests = requests.get(BLOCKED_COUNT_URL).json().get("blocked_total", 0)
 
     recent_total = len(df)
-    recent_blocked = len(df[df["status"] == "BLOCKED"])
+    recent_blocked = len(df[df["risk_level"] == "BLOCKED"])
 
     total_ph.metric("📥 Total Requests (Lifetime)", total_requests)
     blocked_ph.metric(
         "🚫 Blocked Requests (Lifetime)",
         blocked_requests,
-        delta=f"{round((recent_blocked/max(recent_total,1))*100,1)}% in last {recent_total}"
+        delta=f"{round((recent_blocked/max(recent_total,1))*100,1)}% recent"
     )
 
-    threat = "LOW 🟢" if recent_blocked < 2 else "MEDIUM 🟠" if recent_blocked < 6 else "HIGH 🔴"
+    threat = (
+        "LOW 🟢" if recent_blocked < 2
+        else "MEDIUM 🟠" if recent_blocked < 6
+        else "HIGH 🔴"
+    )
     threat_ph.metric("Threat Level", threat)
 
-    rps_df = df.set_index("timestamp").resample("1S").size()
+    # RPS chart
+    rps_df = df.set_index("created_at").resample("1S").size()
     chart_ph.line_chart(rps_df.tail(30))
 
-    blocked_df = df[df["status"] == "BLOCKED"].head(10).rename(columns={
-        "ip": "Client IP",
-        "status": "Decision",
-        "threat_score": "Threat Score"
-    })
+    # Blocked table
+    blocked_df = (
+        df[df["risk_level"] == "BLOCKED"]
+        .head(10)
+        .rename(columns={
+            "endpoint": "Endpoint",
+            "method": "Method",
+            "risk_level": "Decision",
+            "status_code": "HTTP Code"
+        })
+    )
 
     table_ph.dataframe(
-        blocked_df.style
-        .applymap(decision_style, subset=["Decision"])
-        .applymap(threat_style, subset=["Threat Score"])
+        blocked_df.style.applymap(decision_style, subset=["Decision"]),
+        use_container_width=True
     )
 
     time.sleep(REFRESH_SECONDS)
