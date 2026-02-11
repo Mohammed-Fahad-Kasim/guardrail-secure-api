@@ -1,109 +1,130 @@
 import streamlit as st
-import pandas as pd
-import time
 import requests
+import pandas as pd
 
-API_URL = "http://127.0.0.1:8000/logs"
-COUNT_URL = "http://127.0.0.1:8000/logs/count"
-BLOCKED_COUNT_URL = "http://127.0.0.1:8000/logs/blocked/count"
-REFRESH_SECONDS = 1
+API = "http://127.0.0.1:8000"
 
-pd.set_option("display.max_colwidth", 30)
+st.set_page_config(
+    page_title="GuardRail Dashboard",
+    layout="wide"
+)
 
-st.set_page_config(page_title="Secure API Abuse Detection", layout="wide")
+# ---------------- SIDEBAR ----------------
+st.sidebar.title("🛡 GuardRail Demo")
 
-st.markdown("""
-# 🛡️ Secure API Abuse & Rate-Limit Bypass Detection  
-**Real-time behavioral security monitoring dashboard**
-""")
-st.caption("Live traffic • Behavioral analysis • Automated blocking")
+if st.sidebar.button("🔄 Refresh"):
+    st.rerun()
+
+st.sidebar.markdown("### Simulate Traffic")
+
+if st.sidebar.button("✅ Normal (+1)"):
+    requests.post(f"{API}/simulate/normal")
+    st.rerun()
+
+if st.sidebar.button("⚡ Rate-Limit (+6)"):
+    requests.post(f"{API}/simulate/rate-limit")
+    st.rerun()
+
+if st.sidebar.button("🤖 Bot (+12)"):
+    requests.post(f"{API}/simulate/bot")
+    st.rerun()
+
+if st.sidebar.button("🧹 Clear All"):
+    requests.post(f"{API}/admin/clear")
+    st.rerun()
+
+# ---------------- FETCH DATA ----------------
+status = requests.get(f"{API}/status/login").json()
+metrics = requests.get(f"{API}/metrics").json()
+logs = pd.DataFrame(requests.get(f"{API}/logs").json())
+
+limit = status["limit"]
+reset = status["reset_in"]
+blocked_active = status["blocked"]
+
+normal = status["breakdown"]["normal"]
+rate = status["breakdown"]["rate_limit"]
+bot = status["breakdown"]["bot"]
+total_used = status["total_used"]
+
+# ---------------- HEADER ----------------
+st.markdown("## 🛡 GuardRail – Login Protection")
+st.caption("Explainable rate-limit enforcement for API security")
 st.divider()
 
-# Sidebar
-st.sidebar.title("⚙️ Dashboard Info")
-st.sidebar.markdown("**Environment:** Hackathon Simulation")
-st.sidebar.markdown("**Detection Type:** Behavioral Fingerprinting")
-st.sidebar.markdown("**Protection:** Active")
-st.sidebar.markdown("**Mode:** API")
+# ---------------- TOP METRICS ----------------
+m1, m2, m3, m4 = st.columns(4)
 
-# Metrics
-col1, col2, col3 = st.columns(3)
-total_ph = col1.empty()
-blocked_ph = col2.empty()
-threat_ph = col3.empty()
+m1.metric("Total Requests", metrics["total_requests"])
+m2.metric("Blocked Requests", metrics["blocked_requests"])
+m3.metric("Requests Used", f"{total_used} / {limit}")
+m4.metric("Resets In", f"{reset} sec")
 
-st.subheader("📈 Traffic Intensity (Requests / Second)")
-chart_ph = st.empty()
+st.metric(
+    "Blocking Status",
+    "ACTIVE ❌" if blocked_active else "SAFE ✅"
+)
 
-st.subheader("🚨 Recently Blocked Requests")
-table_ph = st.empty()
+# ---------------- OVERLOAD BAR ----------------
+st.progress(min(total_used / (limit * 2), 1.0))
+st.caption("Overload severity • Blocking begins after 15 requests/min")
 
+# ---------------- BREAKDOWN PANEL ----------------
+st.subheader("📊 Traffic Breakdown (current window)")
 
-# ---------- Styling helpers ----------
-def decision_style(val):
-    return "color:#d32f2f; font-weight:bold" if str(val).upper() == "BLOCKED" else "color:#2e7d32"
+b1, b2, b3 = st.columns(3)
 
+def breakdown_card(label, value):
+    if value >= limit:
+        state = "🔴"
+    elif value >= 10:
+        state = "🟠"
+    else:
+        state = "🟢"
+    st.metric(label, f"{value} / {limit}", delta=state)
 
-# ---------- Main loop ----------
-while True:
-    try:
-        df = pd.DataFrame(requests.get(API_URL, timeout=3).json())
-    except Exception as e:
-        st.error(f"API error: {e}")
-        time.sleep(REFRESH_SECONDS)
-        continue
+breakdown_card("Normal Traffic", normal)
+breakdown_card("Rate-Limit Traffic", rate)
+breakdown_card("Bot Traffic", bot)
 
-    if df.empty:
-        st.info("Waiting for logs...")
-        time.sleep(REFRESH_SECONDS)
-        continue
+# ---------------- BLOCK REASON PANEL ----------------
+st.subheader("🧠 GuardRail Decision Explanation")
 
-    # ---- FIXED COLUMN MAPPING ----
-    df["risk_level"] = df["risk_level"].astype(str).str.upper()
-    df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce")
+if blocked_active:
+    reasons = []
 
-    df = df.sort_values("created_at", ascending=False)
+    if total_used > limit:
+        reasons.append("• Login threshold exceeded (15 requests per minute)")
 
-    # Lifetime stats
-    total_requests = requests.get(COUNT_URL).json().get("total", 0)
-    blocked_requests = requests.get(BLOCKED_COUNT_URL).json().get("blocked_total", 0)
+    if rate >= 10:
+        reasons.append("• Sustained burst pattern detected (rate-limit behavior)")
 
-    recent_total = len(df)
-    recent_blocked = len(df[df["risk_level"] == "BLOCKED"])
+    if bot >= 10:
+        reasons.append("• High-frequency automated traffic detected (bot pattern)")
 
-    total_ph.metric("📥 Total Requests (Lifetime)", total_requests)
-    blocked_ph.metric(
-        "🚫 Blocked Requests (Lifetime)",
-        blocked_requests,
-        delta=f"{round((recent_blocked/max(recent_total,1))*100,1)}% recent"
-    )
+    reasons.append("• Automatic protection engaged until window reset")
 
-    threat = (
-        "LOW 🟢" if recent_blocked < 2
-        else "MEDIUM 🟠" if recent_blocked < 6
-        else "HIGH 🔴"
-    )
-    threat_ph.metric("Threat Level", threat)
+    st.error("🚫 **Blocking Active**")
+    for r in reasons:
+        st.markdown(r)
 
-    # RPS chart
-    rps_df = df.set_index("created_at").resample("1S").size()
-    chart_ph.line_chart(rps_df.tail(30))
+else:
+    st.success("✅ **Protection Ready**")
+    st.markdown("• Traffic within safe limits")
+    st.markdown("• No automated mitigation required")
+    st.markdown("• GuardRail monitoring continues")
 
-    # Blocked table
-    blocked_df = (
-        df[df["risk_level"] == "BLOCKED"]
-        .head(10)
-        .rename(columns={
-            "endpoint": "Endpoint",
-            "method": "Method",
-            "risk_level": "Decision",
-            "status_code": "HTTP Code"
-        })
-    )
+# ---------------- LOGS ----------------
+if not logs.empty:
+    logs["created_at"] = pd.to_datetime(logs["created_at"])
+    logs["risk_level"] = logs["risk_level"].str.upper()
 
-    table_ph.dataframe(
-        blocked_df.style.applymap(decision_style, subset=["Decision"]),
+    st.subheader("🚨 Recent Blocked Requests")
+    st.dataframe(
+        logs[logs["risk_level"] == "BLOCKED"]
+        [["endpoint", "status_code", "created_at"]]
+        .head(10),
         use_container_width=True
     )
-
-    time.sleep(REFRESH_SECONDS)
+else:
+    st.info("No logs yet")

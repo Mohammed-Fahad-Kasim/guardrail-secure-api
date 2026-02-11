@@ -1,0 +1,43 @@
+/* ---------- GLOBAL ---------- */
+body {
+    font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont;
+}
+
+/* ---------- DARK THEME ---------- */
+.dark {
+    background: #0e1117;
+    color: #ffffff;
+}
+
+.dark .card {
+    background: #161b22;
+    border-radius: 14px;
+    padding: 16px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+}
+
+/* ---------- LIGHT THEME ---------- */
+.light {
+    background: #f7f9fc;
+    color: #111;
+}
+
+.light .card {
+    background: #ffffff;
+    border-radius: 14px;
+    padding: 16px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+}
+
+/* ---------- SIDEBAR ---------- */
+.sidebar-section {
+    margin-bottom: 24px;
+}
+
+.badge-green {
+    background:\ #1f883d;
+    color: white;
+    padding: 6px 10px;
+    border-radius: 999px;
+    font-size: 13px;
+}
